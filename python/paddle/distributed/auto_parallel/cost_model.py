@@ -16,12 +16,13 @@ import json
 import queue
 import copy
 from enum import Enum
+from functools import reduce
 
 import numpy as np
 
 import paddle
-from paddle.cost_model import CostModel
 from paddle.fluid import core
+from paddle.cost_model import CostModel as CostData
 from paddle.distributed.fleet.meta_optimizers.common import OpRole
 
 SUCC = 0  # successor
@@ -839,7 +840,7 @@ def get_standalone_cost_data(distributed_programs):
         actual_runtime = total_actual_input_size / total_static_input_size * runtime
         return actual_runtime
 
-    cost_model = CostModel()
+    cost_model = CostData()
     cost_model.static_cost_data()
     DEFAULT_MULTIPLE = 2
     OP_NAME_MAPPING = {
@@ -853,13 +854,13 @@ def get_standalone_cost_data(distributed_programs):
     }
 
     standalone_cost_data = []
-    global no_need_enum_ops
+    not_enum_ops = ["create_py_reader", "create_double_buffer_reader", "read"]
     for distributed_program in distributed_programs:
         cost_data = {}
         vars = distributed_program.global_block().vars
         for op in distributed_program.global_block().ops:
             runtime = 0
-            if op.type in no_need_enum_ops:
+            if op.type in not_enum_ops:
                 cost_data[op.desc.id()] = runtime
                 continue
             dtype = str(vars[op.input_arg_names[0]]

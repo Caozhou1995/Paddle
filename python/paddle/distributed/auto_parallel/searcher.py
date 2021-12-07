@@ -25,7 +25,6 @@ import numpy as np
 import paddle
 from paddle.distributed import fleet
 import paddle.distributed.auto_parallel as auto
-from paddle.distributed.utils import get_logger
 from .partitioner import Partitioner
 from .utils import set_grad_var_shape
 from .utils import make_data_unshard
@@ -46,7 +45,6 @@ paddle.enable_static()
 paddle.seed(123)
 random.seed(123)
 np.random.seed(123)
-_logger = get_logger(logging.INFO)
 
 
 def get_all_distributed_main_program(serial_program_info, dist_context):
@@ -135,12 +133,12 @@ class Checker:
         valid = True
         assert len(tensor_shape) == len(dims_mapping)
 
-        for idx, item in enumerate(dims_mapping):
-            if item != -1:
+        for idx, dim_mapping in enumerate(dims_mapping):
+            if dim_mapping != -1:
                 if tensor_shape[idx] % process_mesh_topology[
-                        item] != 0 or dims_mapping.count(item) > 1:
+                        dim_mapping] != 0 or dims_mapping.count(dim_mapping) > 1:
                     valid = False
-            if item != -1 and process_mesh_topology[0] == 1:
+            if dim_mapping != -1 and process_mesh_topology[0] == 1:
                 valid = False
 
         return valid
@@ -198,25 +196,11 @@ class Checker:
         return True
 
 
-class MCMC(SearchAlgorithm):
-    not_enum_ops = ["create_py_reader", "create_double_buffer_reader", "read"]
-    special_vars = ["lod_tensor_blocking_queue_0", "create_py_reader_0", "double_buffer_0"]
-
-    def __init__(self, serial_program_info, max_search_times=5):
-        super(MCMC, self).__init__("mcmc")
-        self._serial_program_info = serial_program_info
-        self._max_search_times = max_search_times
-    
-    @property
-    def serial_program_info(self):
-        return self._serial_program_info
-
-    @property
-    def max_search_times(self):
-        return self._max_search_times
-    
-    def enum_dims_mapping(self, process_mesh_topology, visited, path, depth, res,
-                            tensor_shape):
+class Enumerater:
+    @staticmethod
+    def _enum_dims_mapping(process_mesh_topology, visited, path, depth, res,
+                        tensor_shape):
+        """Enumerate dims mapping of tensor by the given process_mesh_topology"""
         nums = list(range(-1, len(process_mesh_topology)))
         if depth == len(tensor_shape):
             valid = True
@@ -234,85 +218,55 @@ class MCMC(SearchAlgorithm):
                 if i != 0:
                     visited[i] = True
                 path.append(nums[i])
-                self.enum_dims_mapping(process_mesh_topology, visited, path,
+                Enumerater._enum_dims_mapping(process_mesh_topology, visited, path,
                                     depth + 1, res, tensor_shape)
                 visited[i] = False
                 path.pop()
+    
+    @staticmethod
+    def enum_process_mesh_topology(processes):
+        """Enumerate all process meshes with the given processes."""
+        assert processes >= 1, "The processes must be number and greater than 0."
+        # compute divisors
+        divisors = []
+        for i in range(1, processes + 1):
+            if processes % i == 0:
+                divisors.append(i)
 
-    def enum_valid_dist_attr_for_program(self, program, process_mesh_topology, is_pipeline=False):
+        # compute valid process mesh
+        results = []
+        for i in range(len(divisors) - 1, 0, -1):
+            result = []
+            result.append(divisors[i])
+            if i == len(divisors) - 1:
+                results.append(copy.deepcopy(result))
+                continue
 
-        valid_dist_attr_dict = OrderedDict()
-        ops = program.global_block().ops
-        vars = program.global_block().vars
-
-        processes = reduce(lambda x, y: x * y, process_mesh_topology)
-        global_group = [i for i in range(processes)]
-        global_process_mesh = None
-        pipeline_process_meshes = None
-
-        # in the pipeline mode, there are some process meshes
-        if is_pipeline:
-            pipeline_stages = process_mesh_topology[-1]
-            op_count_per_stage = len(ops) // pipeline_stages
-            if len(process_mesh_topology) > 1:
-                process_mesh_shape = process_mesh_topology[:-1]
-                per_process_mesh_group = processes // pipeline_stages
-                pipeline_process_meshes = [auto.ProcessMesh(mesh=np.array(global_group[i*per_process_mesh_group: \
-                (i+1)*per_process_mesh_group]).reshape(process_mesh_shape).tolist()) for i in range(pipeline_stages)]
-            elif len(process_mesh_topology) == 1:
-                pipeline_process_meshes = [
-                    auto.ProcessMesh(mesh=[i]) for i in range(pipeline_stages)
-                ]
-        else:
-            if len(process_mesh_topology) > 1:
-                global_process_mesh = auto.ProcessMesh(
-                    mesh=np.array(global_group).reshape(
-                        process_mesh_topology).tolist())
-            else:
-                global_process_mesh = auto.ProcessMesh(
-                    mesh=global_group)
-        
-        # enumerate valid distributed attribute for each op in the program
-        for idx, op in enumerate(ops):
-            op_valid_dist_attrs = None
-            op_process_mesh = global_process_mesh
-            pipeline_stage = -1
-            if pipeline_process_meshes is not None:
-                pipeline_stage = idx // op_count_per_stage if idx // op_count_per_stage < len(
-                    pipeline_process_meshes) else idx // op_count_per_stage - 1
-                if pipeline_stage >= len(pipeline_process_meshes):
-                    pipeline_stage = len(pipeline_process_meshes) - 1
-                op_process_mesh = pipeline_process_meshes[pipeline_stage]
-
-            if op.type in MCMC.not_enum_ops:
-                op_dist_attr = OperatorDistributedAttribute()
-                op_dist_attr.process_mesh = op_process_mesh
-                for var_name in op.input_arg_names:
-                    if var_name in MCMC.special_vars:
-                        op_dist_attr.set_input_dims_mapping(var_name, [])
+            j = 1
+            while j < len(divisors):
+                if len(result) == 1:
+                    result.append(divisors[j])
+                elif len(result) == 2:
+                    if processes % (result[0] * result[1]) == 0:
+                        if processes // (result[0] * result[1]) == 1:
+                            results.append(copy.deepcopy(result))
+                            break
+                        else:
+                            result.append(processes // (result[0] * result[1]))
+                            results.append(copy.deepcopy(result))
+                            result.pop(-1)
+                            result.pop(-1)
+                            j += 1
                     else:
-                        dims_mapping = [-1 for i in vars[var_name].shape]
-                        op_dist_attr.set_input_dims_mapping(var_name, dims_mapping)
+                        if result[0] * result[1] < processes:
+                            result.pop(-1)
+                            j += 1
+                        else:
+                            break
+        return results
 
-                for var_name in op.output_arg_names:
-                    if var_name in MCMC.special_vars:
-                        op_dist_attr.set_output_dims_mapping(var_name, [])
-                    else:
-                        dims_mapping = [-1 for i in vars[var_name].shape]
-                        op_dist_attr.set_output_dims_mapping(var_name, dims_mapping)
-                op_valid_dist_attrs = [op_dist_attr]
-                pipeline_stage = 0 if pipeline_stage != -1 else pipeline_stage
-            else:
-                op_valid_dist_attrs = self.enum_valid_dist_attr_for_op(
-                    program, op, op_process_mesh)
-
-            assert op_valid_dist_attrs is not None, "Enumerate {} valid distributed attribute failed.".format(op)
-            valid_dist_attr_dict[op.desc.id(
-            )] = [op_valid_dist_attrs, pipeline_stage]
-
-        return valid_dist_attr_dict, pipeline_process_meshes, global_process_mesh
-
-    def enum_valid_dist_attr_for_op(self, program, op, process_mesh):
+    @staticmethod
+    def _enum_valid_dist_attr_for_op(program, op, process_mesh):
         """Enumerate the valid distributed attribute for op based on the given process mesh."""
         vars = program.global_block().vars
         dims_mapping_dict = OrderedDict()
@@ -328,7 +282,7 @@ class MCMC(SearchAlgorithm):
             depth = 0
             path = []
             dims_mapping_list = []
-            self.enum_dims_mapping(process_mesh.topology, visited, path, depth,
+            Enumerater._enum_dims_mapping(process_mesh.topology, visited, path, depth,
                                 dims_mapping_list, vars[var_name].shape)
             dims_mapping_dict[var_name] = copy.deepcopy(dims_mapping_list)
 
@@ -401,48 +355,100 @@ class MCMC(SearchAlgorithm):
             dist_op.dist_attr.impl_idx = -1
             op_valid_dist_attrs.append(dist_op.dist_attr)
 
-        return op_valid_dist_attrs        
+        return op_valid_dist_attrs  
 
-    def enum_process_mesh_topology(self, processes):
-        """Enumerate all process meshes with the given processes."""
-        # compute divisors
-        divisors = []
-        for i in range(1, processes + 1):
-            if processes % i == 0:
-                divisors.append(i)
+    @staticmethod
+    def enum_valid_dist_attr_for_program(program, process_mesh_topology, is_pipeline=False):
+        """Enumerate valid distributed attributes for all ops in program."""
+        valid_dist_attr_dict = OrderedDict()
+        ops = program.global_block().ops
+        vars = program.global_block().vars
 
-        # compute valid process mesh
-        results = []
-        for i in range(len(divisors) - 1, 0, -1):
-            result = []
-            result.append(divisors[i])
-            if i == len(divisors) - 1:
-                results.append(copy.deepcopy(result))
-                continue
+        processes = reduce(lambda x, y: x * y, process_mesh_topology)
+        global_group = [i for i in range(processes)]
+        global_process_mesh = None
+        pipeline_process_meshes = None
 
-            j = 1
-            while j < len(divisors):
-                if len(result) == 1:
-                    result.append(divisors[j])
-                elif len(result) == 2:
-                    if processes % (result[0] * result[1]) == 0:
-                        if processes // (result[0] * result[1]) == 1:
-                            results.append(copy.deepcopy(result))
-                            break
-                        else:
-                            result.append(processes // (result[0] * result[1]))
-                            results.append(copy.deepcopy(result))
-                            result.pop(-1)
-                            result.pop(-1)
-                            j += 1
+        # in the pipeline mode, there are some process meshes
+        if is_pipeline:
+            pipeline_stages = process_mesh_topology[-1]
+            op_count_per_stage = len(ops) // pipeline_stages
+            if len(process_mesh_topology) > 1:
+                process_mesh_shape = process_mesh_topology[:-1]
+                per_process_mesh_group = processes // pipeline_stages
+                pipeline_process_meshes = [auto.ProcessMesh(mesh=np.array(global_group[i*per_process_mesh_group: \
+                (i+1)*per_process_mesh_group]).reshape(process_mesh_shape).tolist()) for i in range(pipeline_stages)]
+            elif len(process_mesh_topology) == 1:
+                pipeline_process_meshes = [
+                    auto.ProcessMesh(mesh=[i]) for i in range(pipeline_stages)
+                ]
+        else:
+            if len(process_mesh_topology) > 1:
+                global_process_mesh = auto.ProcessMesh(
+                    mesh=np.array(global_group).reshape(
+                        process_mesh_topology).tolist())
+            else:
+                global_process_mesh = auto.ProcessMesh(
+                    mesh=global_group)
+        
+        # enumerate valid distributed attribute for each op in the program
+        for idx, op in enumerate(ops):
+            op_valid_dist_attrs = None
+            op_process_mesh = global_process_mesh
+            pipeline_stage = -1
+            if pipeline_process_meshes is not None:
+                pipeline_stage = idx // op_count_per_stage if idx // op_count_per_stage < len(
+                    pipeline_process_meshes) else idx // op_count_per_stage - 1
+                if pipeline_stage >= len(pipeline_process_meshes):
+                    pipeline_stage = len(pipeline_process_meshes) - 1
+                op_process_mesh = pipeline_process_meshes[pipeline_stage]
+
+            if op.type in MCMC.not_enum_ops:
+                op_dist_attr = OperatorDistributedAttribute()
+                op_dist_attr.process_mesh = op_process_mesh
+                for var_name in op.input_arg_names:
+                    if var_name in MCMC.special_vars:
+                        op_dist_attr.set_input_dims_mapping(var_name, [])
                     else:
-                        if result[0] * result[1] < processes:
-                            result.pop(-1)
-                            j += 1
-                        else:
-                            break
-        return results
+                        dims_mapping = [-1 for i in vars[var_name].shape]
+                        op_dist_attr.set_input_dims_mapping(var_name, dims_mapping)
 
+                for var_name in op.output_arg_names:
+                    if var_name in MCMC.special_vars:
+                        op_dist_attr.set_output_dims_mapping(var_name, [])
+                    else:
+                        dims_mapping = [-1 for i in vars[var_name].shape]
+                        op_dist_attr.set_output_dims_mapping(var_name, dims_mapping)
+                op_valid_dist_attrs = [op_dist_attr]
+                pipeline_stage = 0 if pipeline_stage != -1 else pipeline_stage
+            else:
+                op_valid_dist_attrs = Enumerater._enum_valid_dist_attr_for_op(
+                    program, op, op_process_mesh)
+
+            assert op_valid_dist_attrs is not None, "Enumerate {} valid distributed attribute failed.".format(op)
+            valid_dist_attr_dict[op.desc.id(
+            )] = [op_valid_dist_attrs, pipeline_stage]
+
+        return valid_dist_attr_dict, pipeline_process_meshes, global_process_mesh
+
+
+class MCMC(SearchAlgorithm):
+    not_enum_ops = ["create_py_reader", "create_double_buffer_reader", "read"]
+    special_vars = ["lod_tensor_blocking_queue_0", "create_py_reader_0", "double_buffer_0"]
+
+    def __init__(self, serial_program_info, max_search_times=5):
+        super(MCMC, self).__init__("mcmc")
+        self._serial_program_info = serial_program_info
+        self._max_search_times = max_search_times
+    
+    @property
+    def serial_program_info(self):
+        return self._serial_program_info
+
+    @property
+    def max_search_times(self):
+        return self._max_search_times
+    
     def make_special_op_unshard(self, op, ops, vars, dist_context, valid_dist_attr_dict):
         if op.type == "softmax_with_cross_entropy":
             for var_name in op.input_arg_names:
@@ -743,24 +749,25 @@ class MCMC(SearchAlgorithm):
         return best_dist_context, min_cost
 
     def search(self):
-        _logger.info("Start MCMC searching.")
+        logging.info("Start MCMC searching.")
+        start_time = time.time()
         train_program = self.serial_program_info.train_program
         cluster = self.serial_program_info.cluster
         processes = paddle.distributed.get_world_size() if cluster is None else len(cluster.get_all_devices("GPU"))
         assert processes > 0, "Get process failed."
 
-        process_mesh_topology_list = self.enum_process_mesh_topology(processes)
+        process_mesh_topology_list = Enumerater.enum_process_mesh_topology(processes)
         searched_dist_context = None
         min_cost = None
         
         searched_pipeline_dist_context = None
         pipeline_min_cost = None
         for process_mesh_topology in process_mesh_topology_list:
-            _logger.info("MCMC search: search process mesh {} with pipeline mode.".format(process_mesh_topology))
-            valid_dist_attr_dict, pipeline_process_meshes, global_process_mesh = self.enum_valid_dist_attr_for_program(train_program, process_mesh_topology, True)
+            logging.info("MCMC search: search process mesh {} with pipeline mode.".format(process_mesh_topology))
+            valid_dist_attr_dict, pipeline_process_meshes, global_process_mesh = Enumerater.enum_valid_dist_attr_for_program(train_program, process_mesh_topology, True)
             init_dist_context = self.init_program(valid_dist_attr_dict, train_program, pipeline_process_meshes, global_process_mesh)
             best_dist_context, cost = self._search_core(valid_dist_attr_dict, init_dist_context, pipeline_process_meshes)
-            _logger.info("MCMC search: the min cost is {} in the process mesh {} with pipeline mode.".format(cost, process_mesh_topology))
+            logging.info("MCMC search: the min cost is {} in the process mesh {} with pipeline mode.".format(cost, process_mesh_topology))
             best_dist_context._dist_op_context = DistributedOperatorContext()
             pipeline_min_cost = cost if pipeline_min_cost is None else pipeline_min_cost
             searched_pipeline_dist_context = best_dist_context if searched_pipeline_dist_context is None else searched_pipeline_dist_context
@@ -771,11 +778,14 @@ class MCMC(SearchAlgorithm):
         searched_non_pipeline_dist_context = None
         non_pipeline_min_cost = None
         for process_mesh_topology in process_mesh_topology_list:
-            _logger.info("MCMC search: search process mesh {} without pipeline mode.".format(process_mesh_topology))
-            valid_dist_attr_dict, pipeline_process_meshes, global_process_mesh = self.enum_valid_dist_attr_for_program(train_program, process_mesh_topology, False)
+            # if process_mesh_topology shape is 3, include pipeline mode by default
+            if len(process_mesh_topology) == 3:
+                continue
+            logging.info("MCMC search: search process mesh {} without pipeline mode.".format(process_mesh_topology))
+            valid_dist_attr_dict, pipeline_process_meshes, global_process_mesh = Enumerater.enum_valid_dist_attr_for_program(train_program, process_mesh_topology, False)
             init_dist_context = self.init_program(valid_dist_attr_dict, train_program, pipeline_process_meshes, global_process_mesh)
             best_dist_context, cost = self._search_core(valid_dist_attr_dict, init_dist_context, pipeline_process_meshes)
-            _logger.info("MCMC search: the min cost is {} in the process mesh {} without pipeline mode.".format(cost, process_mesh_topology))
+            logging.info("MCMC search: the min cost is {} in the process mesh {} without pipeline mode.".format(cost, process_mesh_topology))
             best_dist_context._dist_op_context = DistributedOperatorContext()
             non_pipeline_min_cost = cost if non_pipeline_min_cost is None else non_pipeline_min_cost
             searched_non_pipeline_dist_context = best_dist_context if searched_non_pipeline_dist_context is None else searched_non_pipeline_dist_context
@@ -794,7 +804,8 @@ class MCMC(SearchAlgorithm):
         pg0 = get_process_group(0)
         for process_mesh in searched_dist_context._process_meshes:
             pg0.add_ranks(process_mesh.processes)
-        _logger.info("End MCMC searching: the min cost is {}.".format(min_cost))
+        end_time = time.time()
+        logging.info("End MCMC searching: the min cost is {} and the search time is {}s.".format(min_cost, end_time-start_time))
         return searched_dist_context, min_cost
 
          
