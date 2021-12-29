@@ -769,20 +769,21 @@ def merge_and_slice_parameter(dist_param_dict, pre_dist_attr, cur_dist_attr):
 
 def _merge_parameter_with_dist_attr(param_list, dist_attr):
     """ Merge parameter with distributed attribute """
-    from .reshard import _compute_complete_shape, _compute_partition_index
 
     dims_mapping = dist_attr["dims_mapping"]
     process_shape = dist_attr["process_shape"]
     process_group = dist_attr["process_group"]
     # get the complete shape of the parameter
-    complete_shape = _compute_complete_shape(param_list[0].shape, process_shape,
-                                             dims_mapping)
+    dist_attr = TensorDistributedAttribute()
+    dist_attr.dims_mapping = dims_mapping
+    dist_attr.process_mesh = ProcessMesh(np.array(process_group).reshape(process_shape))
+    complete_shape = DistributedTensor.get_global_sizes(param_list[0].shape, dist_attr)
+
     # merge the parameter with dist_attr
     partition_param_list = []
     merged_partiton = []
     for process in process_group:
-        partition_index = _compute_partition_index(
-            process, complete_shape, dims_mapping, process_shape, process_group)
+        partition_index = DistributedTensor.get_local_shard(complete_shape, dist_attr, process)
         index = process_group.index(process)
         if partition_index not in merged_partiton:
             merged_partiton.append(partition_index)
@@ -927,10 +928,11 @@ def _get_sliced_param_index(rank, complete_shape, dims_mapping, process_shape,
                                             process_shape, process_group)
             # index: 2
     """
-    from .reshard import _compute_partition_index
+    dist_attr = TensorDistributedAttribute()
+    dist_attr.dims_mapping = dims_mapping
+    dist_attr.process_mesh = ProcessMesh(np.array(process_group).reshape(process_shape))
+    partition_index = DistributedTensor.get_local_shard(complete_shape, dist_attr, rank)
 
-    partition_index = _compute_partition_index(
-        rank, complete_shape, dims_mapping, process_shape, process_group)
     sliced_param_index = 0
     for i, shape in enumerate(complete_shape):
         if dims_mapping[i] == -1:
@@ -966,12 +968,12 @@ def _get_split_indices(complete_shape, dims_mapping, process_shape,
             index = _get_split_indices(complete_shape, dims_mapping, process_shape, process_group)
             # index: [[], [], [2, 4]]
     """
-    from .reshard import _compute_partition_index
-
+    dist_attr = TensorDistributedAttribute()
+    dist_attr.dims_mapping = dims_mapping
+    dist_attr.process_mesh = ProcessMesh(np.array(process_group).reshape(process_shape))
     split_indices_list = []
     for process in process_group:
-        partition_index = _compute_partition_index(
-            process, complete_shape, dims_mapping, process_shape, process_group)
+        partition_index = DistributedTensor.get_local_shard(complete_shape, dist_attr, rank)
         if split_indices_list:
             for dim in range(len(partition_index)):
                 split_indices_list[dim].extend(partition_index[dim])

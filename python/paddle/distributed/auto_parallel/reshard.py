@@ -171,54 +171,6 @@ class ConcatOpDesc:
         return f"op: {self._desc}, partition_index_list: {self._partition_index_list}."
 
 
-def _compute_partition_shape(complete_shape, dims_mapping, process_shape):
-    """Compute the shape of partition."""
-    partition_shape = []
-    for idx, item in enumerate(complete_shape):
-        if dims_mapping[idx] == -1:
-            partition_shape.append(item)
-        else:
-            partition_shape.append(item // process_shape[dims_mapping[idx]])
-
-    return partition_shape
-
-
-def _compute_process_index(process, process_group, process_shape):
-    """Compute the index of process_shape corresponding to the process."""
-    relative_process = process_group.index(process)
-    process_index = []
-    product = reduce(lambda x, y: x * y, process_shape)
-
-    for i in range(len(process_shape)):
-        idx = relative_process // (product // process_shape[i])
-        product = product // process_shape[i]
-        relative_process = relative_process - relative_process // product * product
-        process_index.append(idx)
-
-    return process_index
-
-
-def _compute_partition_index(process, complete_shape, dims_mapping,
-                             process_shape, process_group):
-    """Compute the partition index in complete tensor."""
-    partition_shape = _compute_partition_shape(complete_shape, dims_mapping,
-                                               process_shape)
-    process_index = _compute_process_index(process, process_group,
-                                           process_shape)
-    partition_index = []
-
-    for i in range(len(complete_shape)):
-        if dims_mapping[i] == -1:
-            partition_index.append([0, partition_shape[i]])
-        else:
-            partition_index.append([
-                process_index[dims_mapping[i]] * partition_shape[i],
-                (process_index[dims_mapping[i]] + 1) * partition_shape[i]
-            ])
-
-    return partition_index
-
-
 def _compute_concat_info(partition_index_x, partition_index_y):
     """Judge whether two partition can be concatenated and compute concatenated partition index."""
     differ_count = 0
@@ -330,11 +282,15 @@ def find_op_desc_seq(dist_tensor, dist_op):
     op_dist_attr = dist_op.dist_attr
     target_process_mesh = op_dist_attr.process_mesh
     target_dims_mapping = op_dist_attr.get_input_dims_mapping(tensor_name)
+    target_dist_attr = TensorDistributedAttribute()
+    target_dist_attr.process_mesh = target_process_mesh
+    target_dist_attr.dims_mapping = target_dims_mapping
     target_process_group = target_process_mesh.processes
     target_process_shape = target_process_mesh.topology
+    
 
-    complete_shape = _compute_complete_shape(
-        source_tensor.shape, source_process_shape, source_dims_mapping)
+    complete_shape = DistributedTensor.get_global_sizes(
+        source_tensor.shape, tensor_dist_attr)
     op_desc_seq = {}
 
     # TODO: if the target process group has the same process with source process group
@@ -347,8 +303,8 @@ def find_op_desc_seq(dist_tensor, dist_op):
     elif target_process_group != source_process_group:
         partition_process_mapping_list = []
         for source_process in source_process_group:
-            source_partition_index = _compute_partition_index(source_process, complete_shape, source_dims_mapping, \
-                                                              source_process_shape, source_process_group)
+            source_partition_index = DistributedTensor.get_local_shard(complete_shape, tensor_dist_attr, source_process)
+
             if not partition_process_mapping_list:
                 partition_process_mapping_list.append(
                     [source_partition_index, [source_process], [False]])
@@ -369,15 +325,11 @@ def find_op_desc_seq(dist_tensor, dist_op):
 
         for target_process in target_process_group:
             has_sent = []
-            target_partition_index = _compute_partition_index(
-                target_process, complete_shape, target_dims_mapping,
-                target_process_shape, target_process_group)
+            target_partition_index = DistributedTensor.get_local_shard(complete_shape, target_dist_attr, target_process)
             partition_index_list = []
             all_partition_index_list = []
             for source_process in source_process_group:
-                source_partition_index = _compute_partition_index(
-                    source_process, complete_shape, source_dims_mapping,
-                    source_process_shape, source_process_group)
+                source_partition_index = DistributedTensor.get_local_shard(complete_shape, tensor_dist_attr, source_process)
                 to_send_process = None
                 if all(_ for _ in list(map(_is_overlapped, source_partition_index, target_partition_index))) \
                         and source_partition_index not in has_sent:
@@ -442,9 +394,7 @@ def find_op_desc_seq(dist_tensor, dist_op):
         all_partition_index_list = []
         process_index = []
         for source_process in source_process_group:
-            source_partition_index = _compute_partition_index(
-                source_process, complete_shape, source_dims_mapping,
-                source_process_shape, source_process_group)
+            source_partition_index = DistributedTensor.get_local_shard(complete_shape, tensor_dist_attr, source_process)
             if source_partition_index not in partition_index_list:
                 partition_index_list.append(source_partition_index)
                 process_index.append(
@@ -464,9 +414,7 @@ def find_op_desc_seq(dist_tensor, dist_op):
                 slice_starts = []
                 slice_ends = []
                 slices_axes = []
-                target_partition_index = _compute_partition_index(
-                    process, complete_shape, target_dims_mapping,
-                    target_process_shape, target_process_group)
+                target_partition_index = DistributedTensor.get_local_shard(complete_shape, target_dist_attr, process)
                 for idx, item in enumerate(target_partition_index):
                     slice_starts.append(item[0])
                     slice_ends.append(item[1])
