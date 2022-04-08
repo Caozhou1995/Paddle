@@ -16,8 +16,10 @@ from .base_cost import Cost
 from .base_cost import CommContext
 from .base_cost import _g_op_cost_factory
 from .base_cost import build_comp_desc_str_for_predict
-from .comm_op_cost import AllreduceSumCost
+from .base_cost import build_comm_desc
+from .comm_op_cost import AllreduceSumOpCost
 from .comm_op_cost import AllgatherOpCost
+from .comm_op_cost import BroadcastOpCost
 from .comm_op_cost import SendOpCost
 from .comm_op_cost import RecvOpCost
 from .comp_op_cost import MatmulV2OpCost

@@ -138,6 +138,7 @@ class Device:
 class Link:
 
     default_hop = 1
+    default_nic_bandwith = 24
 
     def __init__(self, source, target):
         self._src = source
@@ -267,7 +268,7 @@ class Machine:
         # Use the device global_id as the key
         self._devices[device.global_id] = device
         if device.type not in Device.NON_ACCELERATOR_TYPE:
-            self._accelerators["global_id"] = device
+            self._accelerators[device.global_id] = device
 
     def add_link(self, link):
         # Use the source device global_id and target device global_id as the key
@@ -344,7 +345,7 @@ class AlphaLatency:
 
         if self._inter_ring is not None:
             if isinstance(self._inter_ring, str):
-                assert self._inter_ring in ["NVL", "PHB"]
+                assert self._inter_ring in ["NET"]
                 self._inter_ring = LinkType[self._inter_ring]
             else:
                 try:
@@ -354,7 +355,7 @@ class AlphaLatency:
 
         if self._inter_tree is not None:
             if isinstance(self._inter_tree, str):
-                assert self._inter_tree in ["NVL", "PHB"]
+                assert self._inter_tree in ["NET"]
                 self._inter_tree = LinkType[self._inter_tree]
             else:
                 try:
@@ -364,7 +365,7 @@ class AlphaLatency:
 
         if self._intra_ring is not None:
             if isinstance(self._intra_ring, str):
-                assert self._intra_ring in ["NET"]
+                assert self._intra_ring in ["NVL", "PHB"]
                 self._intra_ring = LinkType[self._intra_ring]
             else:
                 try:
@@ -374,7 +375,7 @@ class AlphaLatency:
 
         if self._intra_tree is not None:
             if isinstance(self._intra_tree, str):
-                assert self._intra_tree in ["NET"]
+                assert self._intra_tree in ["NVL", "PHB"]
                 self._intra_tree = LinkType[self._intra_tree]
             else:
                 try:
@@ -467,6 +468,16 @@ class Cluster:
                 machine.devices) - len(
                     machine.accelerators
                 ) + prev_machine._non_accelerator_cumulative_count
+        else:
+            for global_id in machine.devices:
+                if machine.devices[
+                        global_id].type not in Device.NON_ACCELERATOR_TYPE:
+                    rank_id = global_id
+                    self._rank_to_device_id[rank_id] = global_id
+                    self._device_id_to_rank[global_id] = rank_id
+                    machine.accelerators[global_id] = machine.devices[global_id]
+            machine._non_accelerator_cumulative_count = len(
+                machine.devices) - len(machine.accelerators)
 
     @property
     def alpha_latency(self):
@@ -564,31 +575,34 @@ class Cluster:
     def get_beta(self, source_device_id, target_device_id):
         # beta means the time transferring a byte, us/B
         beta = None
-        convert_value = 1000
+        convert_base = 1000
         device = self.get_device(source_device_id)
         machine = device.machine
         link = machine.get_link(source_device_id, target_device_id)
         bandwidth = None
+        # None means the source and target are not connected directly, set NIC in default
         if link is None:
-            # it means the source and target are not connected directly, set NIC in default
-            bandwidth = 10
+            bandwidth = Link.default_nic_bandwith
         else:
             bandwidth = link.bandwidth
-            if bandwidth == 0.:
-                beta = 0
-            else:
-                beta = 1 / (bandwidth * (convert_value**3 / 10**6))
+
+        if bandwidth == 0.:
+            beta = 0
+        else:
+            beta = 1 / (bandwidth * (convert_base**3 / 10**6))
 
         return beta
 
     def get_hop(self, source_device_id, target_device_id):
-        # beta means the time transferring a byte, us/B
         beta = None
-        convert_value = 1000
+        hop = None
         device = self.get_device(source_device_id)
         machine = device.machine
         link = machine.get_link(source_device_id, target_device_id)
-        hop = link.get_hop
+        if link is not None:
+            hop = link.hop
+        else:
+            hop = Link.default_hop
         return hop
 
     def cross_machine(self, device_ids):

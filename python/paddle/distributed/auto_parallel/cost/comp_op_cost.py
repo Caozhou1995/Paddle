@@ -92,7 +92,7 @@ class SliceOpCost(CompOpCost):
     OP_TYPE = "slice"
 
     def __init__(self, op=None, op_desc=None, cluster=None):
-        super(SplitOpCost, self).__init__(
+        super(SliceOpCost, self).__init__(
             op=op, op_desc=op_desc, cluster=cluster)
 
     # For a concrete COMP OP, the calc_time and calc_flops function needs to be overrided

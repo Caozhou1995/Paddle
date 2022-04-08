@@ -216,8 +216,8 @@ class CommContext:
             # set default
             self.base_ring = 8.4
             self.base_tree = 0.
-            self.base_inter_ring = 9.6
-            self.base_inter_tree = 28
+            # self.base_inter_ring = 9.6
+            # self.base_inter_tree = 28
             # NVL in default
             self.intra_ring = 3.4
             self.intra_tree = 28
@@ -232,26 +232,10 @@ class CommContext:
             base_tree = alpha_latency.base_tree
             self.base_tree = base_tree if base_tree is not None else 0.
 
-            # base_inter_ring = alpha_latency.base_inter_ring
-            # if base_inter_ring == "NET":
-            #     self.base_inter_ring = 9.6
-            # elif base_inter_ring is not None:
-            #     self.base_inter_ring = base_inter_ring
-            # else:
-            #     self.base_inter_ring = 9.6
-
-            # base_inter_tree = alpha_latency.base_inter_tree
-            # if base_inter_tree == "NET":
-            #     self.base_inter_tree = 28.
-            # elif base_inter_tree is not None:
-            #     self.base_inter_tree = base_inter_tree
-            # else:
-            #     self.base_inter_tree = 28.
-
             intra_ring = alpha_latency.intra_ring
             if intra_ring == LinkType.NVL:
                 self.intra_ring = 3.4
-            elif intra_ring == "PHB":
+            elif intra_ring == LinkType.PHB:
                 self.intra_ring = 5.7
             elif intra_ring is not None:
                 self.intra_ring = intra_ring
@@ -281,36 +265,38 @@ class CommContext:
 
             inter_tree = alpha_latency.inter_tree
             if inter_tree == LinkType.NET:
-                self.inter_tree = 9.6
+                self.inter_tree = 28
             elif inter_tree is not None:
                 self.inter_tree = inter_tree
             else:
                 # NET Default
-                self.inter_tree = 9.6
+                self.inter_tree = 28
 
             switch = alpha_latency.switch
             self.switch = switch if switch is not None else 10
 
-            assert self.base_ring
-            assert self.base_tree
-            assert self.intra_ring
-            assert self.intra_tree
-            assert self.inter_ring
-            assert self.inter_tree
-            assert self.switch
+            assert self.base_ring is not None
+            assert self.base_tree is not None
+            assert self.intra_ring is not None
+            assert self.intra_tree is not None
+            assert self.inter_ring is not None
+            assert self.inter_tree is not None
+            assert self.switch is not None
 
     def get_max_beta(self, ranks):
         # NOTE: Get beta by ring, even in the case of tree such as tree broadcast
         ranks = self.cluster.convert_rank_to_device_id(ranks)
         key = ','.join(map(str, sorted(ranks)))
         max_beta = None
-        if key in self.beta.keys:
+        if key in self.beta:
             max_beta = self.beta[key]
         else:
             for i in range(len(ranks)):
                 for j in range(i + 1, len(ranks)):
-                    forward_order_beta = cluster.get_beta(ranks[i], ranks[j])
-                    backward_order_beta = cluster.get_beta(ranks[j], ranks[i])
+                    forward_order_beta = self.cluster.get_beta(ranks[i],
+                                                               ranks[j])
+                    backward_order_beta = self.cluster.get_beta(ranks[j],
+                                                                ranks[i])
                     beta = forward_order_beta if forward_order_beta > backward_order_beta else backward_order_beta
                     if max_beta == None:
                         max_beta = beta
@@ -326,7 +312,7 @@ class CommContext:
         hops = 0
         for i in range(len(ranks)):
             for j in range(i + 1, len(ranks)):
-                hop = cluster.get_hop(ranks[i], ranks[j])
+                hop = self.cluster.get_hop(ranks[i], ranks[j])
                 hops += hop
         self.hops[key] = hops
 
@@ -400,7 +386,7 @@ class OpCost:
                                                         op_desc is not None)
         self._op = op
         self._op_desc = op_desc
-        self._cost = self.calc_cost()
+        self._cost = None
 
     @property
     def op(self):
@@ -409,6 +395,18 @@ class OpCost:
     @property
     def op_desc(self):
         return self._op_desc
+
+    @property
+    def time(self):
+        return self.cost.time
+
+    @property
+    def memory(self):
+        return self.cost.memory
+
+    @property
+    def flops(self):
+        return self.cost.flops
 
     @property
     def cost(self):
@@ -430,6 +428,40 @@ class OpCost:
         cost = Cost(time, memory, flops)
         return cost
 
+    def __add__(self, rhs):
+        assert isinstance(rhs, (OpCost, Cost))
+        time = 0
+        memory = 0
+        flops = 0
+        if isinstance(rhs, OpCost):
+            time = self.cost.time + rhs.cost.time
+            memory = self.cost.memory + rhs.cost.memory
+            flops = self.cost.flops + rhs.cost.flops
+            assert (time >= 0 and memory >= 0 and flops >= 0)
+        elif isinstance(rhs, Cost):
+            time = self.time + rhs.time
+            memory = self.memory + rhs.memory
+            flops = self.flops + rhs.flops
+            assert (time >= 0 and memory >= 0 and flops >= 0)
+        return Cost(time, memory, flops)
+
+    def __sub__(self, rhs):
+        assert isinstance(rhs, (OpCost, Cost))
+        time = 0
+        memory = 0
+        flops = 0
+        if isinstance(rhs, OpCost):
+            time = self.cost.time - rhs.cost.time
+            memory = self.cost.memory - rhs.cost.memory
+            flops = self.cost.flops - rhs.cost.flops
+            assert (time >= 0 and memory >= 0 and flops >= 0)
+        elif isinstance(rhs, Cost):
+            time = self.time - rhs.time
+            memory = self.memory - rhs.memory
+            flops = self.flops - rhs.flops
+            assert (time >= 0 and memory >= 0 and flops >= 0)
+        return Cost(time, memory, flops)
+
 
 class CommOpCost(OpCost):
     OP_TYPE = "COMM"
@@ -443,6 +475,7 @@ class CommOpCost(OpCost):
         self._hops = None
         self._rank_count = len(self.group_ranks)
         self._machine_count = None
+        self._cost = self.calc_cost()
 
     @property
     def comm_context(self):
@@ -453,16 +486,16 @@ class CommOpCost(OpCost):
         if self._comm_count is None:
             dtype = None
             shape = None
-            if op is not None:
-                vars = op.block.vars
+            if self.op is not None:
+                vars = self.op.block.vars
                 # NOTE: The tensor communicated input_name is "X" in default. Otherwise, this function should be overrided
-                var_name = op.input("X")[0]
+                var_name = self.op.input("X")[0]
                 var = vars[var_name]
                 dtype = var.dtype
                 shape = var.shape
-            elif op_desc is not None:
-                dtype = op_desc["inputs"]["X"][0][0]
-                shape = op_desc["inputs"]["X"][0][1]
+            elif self.op_desc is not None:
+                dtype = self.op_desc["inputs"]["X"][0][0]
+                shape = self.op_desc["inputs"]["X"][0][1]
 
             factor = None
             if dtype == paddle.float32 or dtype == paddle.int32:
@@ -477,8 +510,9 @@ class CommOpCost(OpCost):
                 raise TypeError("This dtype {} is not supported now".format(
                     dtype))
             comm_count = reduce(lambda x, y: x * y, shape) * factor
-        else:
-            return self._comm_count
+            self._comm_count = comm_count
+
+        return self._comm_count
 
     @property
     def rank_count(self):
@@ -527,6 +561,7 @@ class CompOpCost(OpCost):
     def __init__(self, op=None, op_desc=None, cluster=None):
         super(CompOpCost, self).__init__(op=op, op_desc=op_desc)
         self._check_comp_op_type()
+        self._cost = self.calc_cost()
         self.cluster = cluster
 
     @classmethod
@@ -541,6 +576,7 @@ def register_op_cost(cls):
     op_type = cls.OP_TYPE
 
     def register(op_type):
+        global _g_op_cost_factory
         _g_op_cost_factory[op_type] = cls
 
     register(op_type)
