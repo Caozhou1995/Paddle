@@ -270,6 +270,7 @@ class Inserter:
         op_type = 'send_v2'
         # print("reshard.py insert send_op", tensor.name, tensor.lod_level)
         process_group = new_process_group([src, dst])
+        # print("reshard.py [{}, {}] id is {}".format(src, dst, process_group.id))
         block._insert_op(
             idx,
             type=op_type,
@@ -289,14 +290,15 @@ class Inserter:
         # print("reshard.py insert recv_op", tensor.name, tensor.lod_level)
         # print("reshard.py recv tensor", tensor)
         process_group = new_process_group([src, dst])
+        # print("reshard.py [{}, {}] id is {}".format(src, dst, process_group.id))
         block._insert_op(
             idx,
             type=op_type,
             inputs={'X': [tensor]},
             outputs={'Out': [tensor]},
             attrs={
-                'ring_id': process_group.id,
-                'peer': process_group.ranks.index(src),
+                'ring_id': process_group.ranks.index(src),
+                'peer': src,
                 'out_shape': tensor.shape,
                 'dtype': tensor.dtype,
                 'use_calc_stream': True,

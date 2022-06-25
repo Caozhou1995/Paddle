@@ -173,11 +173,12 @@ class Engine:
             # instantiate communication by process_mapping.
             all_process_groups = get_all_process_groups()
             print("engine.py process group")
-            for process_group in all_process_groups:
-                print(process_group.ranks)
+            # for process_group in all_process_groups:
+            #     print(process_group.ranks, process_group.id)
             for process_group in all_process_groups:
                 if self._cur_rank not in process_group.ranks:
                     continue
+                print("instantiating process group: ", process_group.ranks, process_group.id)
                 process_group.instantiate()
             
 
@@ -197,7 +198,7 @@ class Engine:
             if uninitialized:
                 prune_startup_prog = dist_startup_prog._prune(uninitialized)
                 print("engine.py startup_program")
-                print_program_with_dist_attr(prune_startup_prog, self.dist_context)
+                print(prune_startup_prog)
                 self._executor.run(prune_startup_prog)
 
     def fit(self,
