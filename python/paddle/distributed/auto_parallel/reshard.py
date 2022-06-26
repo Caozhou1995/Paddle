@@ -297,8 +297,8 @@ class Inserter:
             inputs={'X': [tensor]},
             outputs={'Out': [tensor]},
             attrs={
-                'ring_id': process_group.ranks.index(src),
-                'peer': src,
+                'ring_id': process_group.id,
+                'peer': process_group.ranks.index(src),
                 'out_shape': tensor.shape,
                 'dtype': tensor.dtype,
                 'use_calc_stream': True,
