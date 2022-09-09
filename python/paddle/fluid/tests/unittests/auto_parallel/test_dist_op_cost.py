@@ -71,11 +71,7 @@ class TestDistOpCost(unittest.TestCase):
                                            shape=[4, 1],
                                            dtype='float32')
                 label.stop_gradient = True
-                auto.shard_tensor(x,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [0, -1]
-                                  })
+                auto.shard_tensor(x, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x", None])
                 tmp = paddle.fluid.layers.fill_constant_batch_size_like(
                     input=x, shape=[2, 8], value=1, dtype='float32')
                 weight_attr = paddle.ParamAttr()
@@ -121,17 +117,9 @@ class TestDistOpCost(unittest.TestCase):
                                            shape=[8, 1],
                                            dtype='float32')
                 label.stop_gradient = True
-                auto.shard_tensor(x,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [0]
-                                  })
+                auto.shard_tensor(x, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x"])
 
-                auto.shard_tensor(label,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [0, -1]
-                                  })
+                auto.shard_tensor(label, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x", None])
                 # embedding
                 tmp = paddle.fluid.layers.fill_constant_batch_size_like(
                     input=x, shape=[4], value=1, dtype='int32')
@@ -141,39 +129,22 @@ class TestDistOpCost(unittest.TestCase):
                 for op in main_program.global_block().ops:
                     if op.type == "lookup_table_v2":
                         W = main_program.global_block().vars[op.input("W")[0]]
-                        auto.shard_tensor(W,
-                                          dist_attr={
-                                              "process_mesh":
-                                              auto.ProcessMesh([0, 1]),
-                                              "dims_mapping": [0, -1]
-                                          })
+                        auto.shard_tensor(W, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x", None])
                 out = paddle.fluid.layers.transpose(out,
                                                     [1, 0])  # [8, 2] [-1, 0]
 
                 # matmul
                 param1 = paddle.fluid.layers.create_parameter(
                     [4, 8], paddle.float32)  # [2, 8] [0, -1]
-                auto.shard_tensor(param1,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [0, -1]
-                                  })
+                auto.shard_tensor(param1, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x", None])
                 param2 = paddle.fluid.layers.create_parameter(
                     [8, 8], paddle.float32)  # [8, 4] [-1, 0]
-                auto.shard_tensor(param2,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [-1, 0]
-                                  })
+                auto.shard_tensor(param2, auto.ProcessMesh([0, 1], dim_names=["x"]), [None, "x"])
                 out1 = paddle.fluid.layers.matmul(out,
                                                   param1)  # [8, 8] [-1, -1]
                 tmp_param = paddle.fluid.layers.create_parameter(
                     [8, 8], paddle.float32)  # [8, 8] [-1, -1]
-                auto.shard_tensor(param2,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [-1, -1]
-                                  })
+                auto.shard_tensor(param2, auto.ProcessMesh([0, 1], dim_names=["x"]), [None, None])
                 tmp_out = paddle.fluid.layers.matmul(out1, tmp_param)
                 out2 = paddle.fluid.layers.matmul(tmp_out,
                                                   param2)  # [8, 4] [-1, 0]
@@ -227,17 +198,9 @@ class TestDistOpCost(unittest.TestCase):
                                            shape=[8, 1],
                                            dtype='float32')
                 label.stop_gradient = True
-                auto.shard_tensor(x,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [0]
-                                  })
+                auto.shard_tensor(x, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x"])
 
-                auto.shard_tensor(label,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [0, -1]
-                                  })
+                auto.shard_tensor(label, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x", None])
                 # embedding
                 tmp = paddle.fluid.layers.fill_constant_batch_size_like(
                     input=x, shape=[4], value=1, dtype='int32')
@@ -247,38 +210,22 @@ class TestDistOpCost(unittest.TestCase):
                 for op in main_program.global_block().ops:
                     if op.type == "lookup_table_v2":
                         W = main_program.global_block().vars[op.input("W")[0]]
-                        auto.shard_tensor(W,
-                                          dist_attr={
-                                              "process_mesh":
-                                              auto.ProcessMesh([0, 1]),
-                                              "dims_mapping": [0, -1]
-                                          })
+                        auto.shard_tensor(W, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x", None])
                 out = paddle.fluid.layers.transpose(out,
                                                     [1, 0])  # [8, 2] [-1, 0]
 
                 # matmul_v2
                 param1 = paddle.fluid.layers.create_parameter(
                     [4, 8], paddle.float32)  # [2, 8] [0, -1]
-                auto.shard_tensor(param1,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [0, -1]
-                                  })
+                auto.shard_tensor(param1, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x", None])
                 param2 = paddle.fluid.layers.create_parameter(
                     [8, 8], paddle.float32)  # [8, 4] [-1, 0]
-                auto.shard_tensor(param2,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [-1, 0]
-                                  })
+                auto.shard_tensor(param2, auto.ProcessMesh([0, 1], dim_names=["x"]), [None, "x"])
                 out1 = paddle.matmul(out, param1)  # [8, 8] [-1, -1]
                 tmp_param = paddle.fluid.layers.create_parameter(
                     [8, 8], paddle.float32)  # [8, 8] [-1, -1]
-                auto.shard_tensor(param2,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [-1, -1]
-                                  })
+                auto.shard_tensor(param2, auto.ProcessMesh([0, 1], dim_names=["x"]), [None, None])
+
                 tmp_out = paddle.matmul(out1, tmp_param)
                 out2 = paddle.matmul(tmp_out, param2)  # [8, 4] [-1, 0]
 
@@ -331,17 +278,8 @@ class TestDistOpCost(unittest.TestCase):
                                            shape=[8, 1],
                                            dtype='float32')
                 label.stop_gradient = True
-                auto.shard_tensor(x,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [0]
-                                  })
-
-                auto.shard_tensor(label,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [0, -1]
-                                  })
+                auto.shard_tensor(x, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x"])
+                auto.shard_tensor(label, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x", None])
                 # embedding
                 tmp = paddle.fluid.layers.fill_constant_batch_size_like(
                     input=x, shape=[4], value=1, dtype='int32')
@@ -351,38 +289,23 @@ class TestDistOpCost(unittest.TestCase):
                 for op in main_program.global_block().ops:
                     if op.type == "lookup_table_v2":
                         W = main_program.global_block().vars[op.input("W")[0]]
-                        auto.shard_tensor(W,
-                                          dist_attr={
-                                              "process_mesh":
-                                              auto.ProcessMesh([0, 1]),
-                                              "dims_mapping": [0, -1]
-                                          })
+                        auto.shard_tensor(W, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x", None])
                 out = paddle.fluid.layers.transpose(out,
                                                     [1, 0])  # [8, 2] [-1, 0]
 
                 # mul
                 param1 = paddle.fluid.layers.create_parameter(
                     [4, 8], paddle.float32)  # [2, 8] [0, -1]
-                auto.shard_tensor(param1,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [0, -1]
-                                  })
+                auto.shard_tensor(param1, auto.ProcessMesh([0, 1], dim_names=["x"]), ["x", None])
                 param2 = paddle.fluid.layers.create_parameter(
                     [8, 8], paddle.float32)  # [8, 4] [-1, 0]
-                auto.shard_tensor(param2,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [-1, 0]
-                                  })
+                auto.shard_tensor(param2, auto.ProcessMesh([0, 1], dim_names=["x"]), [None, "x"])
+
                 out1 = paddle.fluid.layers.mul(out, param1)  # [8, 8] [-1, -1]
                 tmp_param = paddle.fluid.layers.create_parameter(
                     [8, 8], paddle.float32)  # [8, 8] [-1, -1]
-                auto.shard_tensor(param2,
-                                  dist_attr={
-                                      "process_mesh": auto.ProcessMesh([0, 1]),
-                                      "dims_mapping": [-1, -1]
-                                  })
+                auto.shard_tensor(param2, auto.ProcessMesh([0, 1], dim_names=["x"]), [None, None])
+
                 tmp_out = paddle.fluid.layers.mul(out1, tmp_param)
                 out2 = paddle.fluid.layers.mul(tmp_out,
                                                param2)  # [8, 4] [-1, 0]
