@@ -1319,6 +1319,10 @@ def is_forward_op(op):
         op_role == int(OpRole.Forward) or op_role == int(OpRole.Loss)
     )
 
+def is_fillconst_op_for_micro_batch(op):
+    op_role = int(op.attr('op_role'))
+    return OP_ROLE_KEY in op.attr_names and (
+        op_role == int(OpRole.LRSched))
 
 def is_backward_op(op):
     return OP_ROLE_KEY in op.attr_names and int(
