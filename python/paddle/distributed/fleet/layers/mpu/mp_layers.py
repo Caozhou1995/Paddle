@@ -124,7 +124,7 @@ class VocabParallelEmbedding(paddle.nn.Layer):
         self._size = [per_part_size, embedding_dim]
         self._weight_attr = weight_attr
         self._name = name
-
+        self.embedding_dim = embedding_dim
         if self.is_mp and paddle.in_dynamic_mode():
             with get_rng_state_tracker().rng_state():
                 self.weight = self.create_parameter(

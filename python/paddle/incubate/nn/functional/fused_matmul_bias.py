@@ -54,9 +54,12 @@ def fused_matmul_bias(
     if bias is None:
         return matmul(x, y, transpose_x, transpose_y, name)
     if in_dynamic_mode():
-        return _legacy_C_ops.fused_gemm_epilogue(
+        out = _legacy_C_ops.fused_gemm_epilogue(
             x, y, bias, 'trans_x', transpose_x, 'trans_y', transpose_y
         )
+        from paddle.distributed.dump import save_act_numpy
+        save_act_numpy([x, y, bias, False, out], "fused_linear")
+        return out
 
     helper = LayerHelper('fused_matmul_bias', **locals())
     out = helper.create_variable_for_type_inference(dtype=x.dtype)

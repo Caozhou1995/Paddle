@@ -231,7 +231,10 @@ def matmul(x, y, transpose_x=False, transpose_y=False, name=None):
 
     """
     if in_dynamic_mode():
-        return _C_ops.matmul(x, y, transpose_x, transpose_y)
+        from paddle.distributed.dump import save_act_numpy
+        out = _C_ops.matmul(x, y, transpose_x, transpose_y)
+        save_act_numpy([x, y, transpose_x, transpose_y, out], "matmul")
+        return out
     else:
         attrs = {
             'trans_x': transpose_x,

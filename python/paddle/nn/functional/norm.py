@@ -335,6 +335,8 @@ def layer_norm(
 
     if in_dygraph_mode():
         out = _C_ops.layer_norm(x, weight, bias, epsilon, begin_norm_axis)
+        from paddle.distributed.dump import save_act_numpy
+        save_act_numpy([x, normalized_shape, weight, bias, epsilon, out], "layer_norm")
         return out
 
     else:

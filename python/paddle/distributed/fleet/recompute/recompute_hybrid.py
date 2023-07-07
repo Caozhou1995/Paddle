@@ -86,12 +86,19 @@ class _HPRecomputeFunction(PyLayer):
         *args,
         **kwargs,
     ):
+        if not hasattr(run_function, "need_dump"):
+            run_function.need_dump = True
+            ctx.need_dump = True
+        else:
+            run_function.need_dump = False
+            ctx.need_dump = False
+
         # store for recomputing
         ctx.run_function = run_function
 
         ctx.kwargs = kwargs
 
-        # store the rng states
+        # store the rng statesre
         ctx.fwd_rng_state = paddle.get_rng_state()
         ctx.fwd_rng_state_tracker = get_rng_state_tracker().get_states_tracker()
 
@@ -175,6 +182,9 @@ class _HPRecomputeFunction(PyLayer):
 
     @staticmethod
     def backward(ctx, *args):
+        import os
+        if hasattr(ctx, "need_dump") and ctx.need_dump:
+            os.environ['dump'] = "true"
         with paddle.fluid.dygraph.guard():
             # Restore inputs
             inputs = list(ctx.inputs)
@@ -246,6 +256,8 @@ class _HPRecomputeFunction(PyLayer):
                 for inp in detached_inputs
                 if isinstance(inp, core.eager.Tensor)
             )
+            if "dump" in os.environ:
+                del os.environ['dump']
             return grads
 
 

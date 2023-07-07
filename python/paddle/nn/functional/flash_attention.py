@@ -208,6 +208,8 @@ def flash_attention(
                 not training,
                 rng_name,
             )
+            from paddle.distributed.dump import save_act_numpy
+            save_act_numpy([query, key, value, dropout, causal, return_softmax, training, result_attention, result_softmax], "flash_attention")
             return result_attention, result_softmax if return_softmax else None
 
         helper = LayerHelper('flash_attn', **locals())
