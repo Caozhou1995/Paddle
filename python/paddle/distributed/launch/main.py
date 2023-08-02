@@ -337,8 +337,14 @@ def launch():
 
             assert "etcd://" in ctx.args.master
             master_ip, port = ctx.args.master.strip("etcd://").split(':')
-            client = etcd3.client(host=master_ip, port=port)
-            client.delete("best_cfg")
+            success = False
+            while not success:
+                try:
+                    client = etcd3.client(host=master_ip, port=port)
+                    client.delete("best_cfg")
+                    success = True
+                except:
+                    time.sleep(1)
 
         # build AutoTuner to get new config
         auto_tuner = AutoTuner(tuner_cfg)
@@ -455,7 +461,12 @@ def launch():
                 ip = socket.gethostbyname(socket.getfqdn(hostname))
             except:
                 ip = '127.0.0.1'
-            if ip == master_ip:
+
+            import os
+
+            collective_master_ip = os.environ.get("COLLECTIVE_MASTER_IP", None)
+            assert collective_master_ip is not None
+            if ip == collective_master_ip:
                 best_cfg, err = recorder.get_best(
                     metric=tuner_cfg['metric_cfg']['name'],
                     direction=tuner_cfg['metric_cfg']['OptimizationDirection'],
