@@ -198,6 +198,8 @@ class CollectiveController(Controller):
         The new designed collective need nothing but a master endpoint
         '''
         collective_master = peer_list[0]['candidate']
+
+        # get collective master ip
         collective_master_ip = collective_master.split(':')[0].strip()
         os.environ["COLLECTIVE_MASTER_IP"] = collective_master_ip
 
