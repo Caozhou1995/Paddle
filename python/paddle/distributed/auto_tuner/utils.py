@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import copy
+import csv
 import itertools
 import os
 import re
@@ -320,7 +321,7 @@ def gen_new_args(raw_args, cfg, tuner_cfg):
     return res_args
 
 
-def read_log(
+def read_metric_log(
     path, file="workerlog.0", target_metric='step/s'
 ) -> Tuple[float, bool]:
     """For extracting metric from log file."""
@@ -332,14 +333,21 @@ def read_log(
         re_metric_pattern = (
             target_metric + r":* *(\d+(\.\d*)?)|(\d+(\.\d*)?) *" + target_metric
         )
-
+        re_out_of_memory_pattern = r"Out of memory"
+        out_of_memory_flag = False
         metric_list = []
         lines = f.readlines()
         for line in lines:
             metric = re.findall(re_metric_pattern, line)
+            out_of_memory = re.findall(
+                re_out_of_memory_pattern, line, re.IGNORECASE
+            )
             if metric:
                 metric_list.append(float(metric[0][0]))
-        if not metric_list:
+            if out_of_memory:
+                out_of_memory_flag = True
+
+        if not metric_list or out_of_memory_flag:
             metric_ave = 0.0
             flag = True
         elif len(metric_list) < 10:
@@ -355,3 +363,168 @@ def read_log(
         metric_ave = round(metric_ave, 5)
     res = metric_ave, flag
     return res
+
+
+def read_memory_log(path, file) -> Tuple[float, bool]:
+    log_path = os.path.join(path, file)
+    if not os.path.exists(log_path):
+        return (0.0, True)
+    memory_used = []
+    utilization_gpu = []
+    indexs = []
+
+    with open(log_path, 'r') as f:
+        reader = csv.reader(f)
+        flag = False
+        # skip headers
+        while not flag:
+            # show the first line of reader
+            row = next(reader)
+            if len(row) == 6 and 'memory_used' in row:
+                flag = True
+        for row in reader:
+            # If row length is 6 then it's a utilization data row
+            # skip header
+            if len(row) == 6:
+                index, util_gpu, _, mem_used, _, _ = row
+                indexs.append(int(index))
+                memory_used.append(int(mem_used))
+                utilization_gpu.append(int(util_gpu))
+    return max(memory_used), False
+
+
+def read_log(
+    path,
+    metric_file="workerlog.0",
+    target_metric='step/s',
+    memory_file="0.gpu.log",
+) -> Tuple[float, float, int]:
+    """extract metric and out of memory from log file
+    return:
+        metric: average metric of last 10 steps
+        memory: max memory used
+        err_code: 00: no error, 01: no metric, 10: out of memory
+    """
+    err_code = 0
+    # check all workerlog files in target path
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            metric, metric_flag = read_metric_log(path, file, target_metric)
+            if metric_flag:
+                err_code = metric_flag | err_code
+            if file == metric_file:
+                res_metric = metric
+
+    res_memory, memory_flag = read_memory_log(path, memory_file)
+    if memory_flag:
+        err_code = (memory_flag << 1) | err_code
+    return res_metric, res_memory, err_code
+
+
+def three_mul_combinations(target):
+    """Return the combinations of three numbers which product is target."""
+    results = []
+    for i in range(1, target // 3 + 1):
+        if target % i == 0:
+            for j in range(i, target // 2 + 1):
+                if (target // i) % j == 0:
+                    results.append((i, j, target // i // j))
+    return results
+
+
+def gbs_dp_mp_pp_candidates(tuner_cfg, num_gpus, num_nodes):
+    """Return middle candidates of dp, mp, pp"""
+
+    start = round(num_gpus ** (1 / 3))
+
+    # find factors that can be evenly distributed
+    for i in range(start, 0, -1):
+        if num_gpus % i == 0:
+            remaining = num_gpus // i
+            # find the square root as a factor for the remaining part
+            j = round(remaining**0.5)
+            while remaining % j != 0:
+                j -= 1
+            return i, j, remaining // j
+
+    raise ValueError("Cannot distribute GPUs equally")
+
+
+def gbs_default_candidates(tuner_cfg):
+    """Return the default candidates of every hyper param which user defined auto"""
+    candidates = {}
+    num_gpus = tuner_cfg["num_gpus"]
+    num_nodes = tuner_cfg["nodes"]
+    assert num_gpus > 0
+    global_batch_size = tuner_cfg.get("model_cfg", {}).get(
+        "global_batch_size", "auto"
+    )
+    if global_batch_size == "auto":
+        dp_candidate, mp_candidate, pp_candidate = gbs_dp_mp_pp_candidates(
+            tuner_cfg, num_gpus, num_nodes
+        )
+        sharding_dgree_candidate = dp_candidate
+        candidates["dp_degree"] = [1]
+        candidates["mp_degree"] = [mp_candidate]
+        candidates["pp_degree"] = [pp_candidate]
+        candidates["sharding_degree"] = [sharding_dgree_candidate]
+        candidates["sharding_stage"] = [1]
+        candidates["use_recompute"] = [False]
+        candidates["recompute_granularity"] = [None]
+        candidates["micro_batch_size"] = [2**i for i in range(0, 10)]
+        candidates["global_batch_size"] = [
+            pp_candidate * dp_candidate * e
+            for e in candidates["micro_batch_size"]
+        ]
+    return candidates
+
+
+def gbs_search_all(tuner_cfg):
+    """Permutate the candidates of all hyper params."""
+    candidates = tuner_cfg["candidates"]
+    # Order: dp -> mp -> pp -> mbs -> sharding-> recompute
+    dp_degree_candidates = candidates["dp_degree"]
+    mp_degree_candidates = candidates["mp_degree"]
+    pp_degree_candidates = candidates["pp_degree"]
+    mbs_candidates = candidates["micro_batch_size"]
+    sharding_stage_candidates = candidates["sharding_stage"]
+    sharding_degree_candidates = candidates["sharding_degree"]
+    use_recompute_candidates = candidates["use_recompute"]
+    recompute_granularity_candidates = candidates["recompute_granularity"]
+    # gbs_candidates = candidates["global_batch_size"]
+    all_cfgs = list(
+        itertools.product(
+            dp_degree_candidates,
+            mp_degree_candidates,
+            pp_degree_candidates,
+            mbs_candidates,
+            sharding_degree_candidates,
+            sharding_stage_candidates,
+            use_recompute_candidates,
+            recompute_granularity_candidates,
+            # gbs_candidates,
+        )
+    )
+    mapping = {
+        0: "dp_degree",
+        1: "mp_degree",
+        2: "pp_degree",
+        3: "micro_batch_size",
+        5: "sharding_stage",
+        4: "sharding_degree",
+        6: "use_recompute",
+        7: "recompute_granularity",
+        # 8: "global_batch_size",
+    }
+    new_all_cfgs = []
+    for cfg in all_cfgs:
+        new_cfg = {}
+        for idx, val in enumerate(cfg):
+            new_cfg[mapping[idx]] = val
+        new_cfg["global_batch_size"] = (
+            new_cfg["pp_degree"]
+            * new_cfg["dp_degree"]
+            * new_cfg["micro_batch_size"]
+        )
+        new_all_cfgs.append(new_cfg)
+    return new_all_cfgs
