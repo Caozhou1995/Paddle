@@ -261,6 +261,7 @@ class ETCDMaster(Master):
                 except:
                     time.sleep(1)
 
+
         if self.ctx.is_auto_tuner_mode():
             lease_success = False
             while not lease_success:
