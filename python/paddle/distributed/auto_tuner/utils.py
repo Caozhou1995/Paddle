@@ -317,9 +317,16 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                         "Please check your auto tuner json whether valid."
                     )
                 keys = cmd[arg][1].split(".")
+                value = None
                 for key in keys[: len(keys) - 1]:
-                    cmd_cfg = cmd_cfg[key]
-                cmd_cfg[keys[-1]] = cfg[arg]
+                    if not value:
+                        value = cmd_cfg[key]
+                    else:
+                        value = value[key]
+                if value:
+                    value[keys[-1]] = cfg[arg]
+                else:
+                    cmd_cfg[keys[-1]] = cfg[arg]
                 json.dump(cmd_cfg, open(cmd[arg][0], "w"))
             elif ".yaml" in cmd[arg][0]:
                 import yaml
@@ -333,9 +340,16 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                         "Please check your auto tuner json whether valid."
                     )
                 keys = cmd[arg][1].split(".")
+                value = None
                 for key in keys[: len(keys) - 1]:
-                    cmd_cfg = cmd_cfg[key]
-                cmd_cfg[keys[-1]] = cfg[arg]
+                    if not value:
+                        value = cmd_cfg[key]
+                    else:
+                        value = value[key]
+                if value:
+                    value[keys[-1]] = cfg[arg]
+                else:
+                    cmd_cfg[keys[-1]] = cfg[arg]
                 yaml.dump(cmd_cfg, open(cmd[arg][0], "w"))
         elif arg == "local_batch_size" and arg in cmd:
             local_batch_size = (
@@ -365,9 +379,16 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                         "Please check your auto tuner json whether valid."
                     )
                 keys = cmd[arg][1].split(".")
+                value = None
                 for key in keys[: len(keys) - 1]:
-                    cmd_cfg = cmd_cfg[key]
-                cmd_cfg[keys[-1]] = local_batch_size
+                    if not value:
+                        value = cmd_cfg[key]
+                    else:
+                        value = value[key]
+                if value:
+                    value[keys[-1]] = local_batch_size 
+                else:
+                    cmd_cfg[keys[-1]] = local_batch_size
                 json.dump(cmd_cfg, open(cmd[arg][0], "w"))
             elif ".yaml" in cmd[arg][0]:
                 import yaml
@@ -381,9 +402,16 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                         "Please check your auto tuner json whether valid."
                     )
                 keys = cmd[arg][1].split(".")
+                value = None
                 for key in keys[: len(keys) - 1]:
-                    cmd_cfg = cmd_cfg[key]
-                cmd_cfg[keys[-1]] = local_batch_size
+                    if not value:
+                        value = cmd_cfg[key]
+                    else:
+                        value = value[key]
+                if value:
+                    value[keys[-1]] = local_batch_size
+                else:
+                    cmd_cfg[keys[-1]] = local_batch_size
                 yaml.dump(cmd_cfg, open(cmd[arg][0], "w"))
 
         elif arg == "gradient_accumulation_steps" and arg in cmd:
@@ -421,9 +449,16 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                         "Please check your auto tuner json whether valid."
                     )
                 keys = cmd[arg][1].split(".")
+                value = None
                 for key in keys[: len(keys) - 1]:
-                    cmd_cfg = cmd_cfg[key]
-                cmd_cfg[keys[-1]] = gradient_accumulation_steps
+                    if not value:
+                        value = cmd_cfg[key]
+                    else:
+                        value = value[key]
+                if value:
+                    value[keys[-1]] = gradient_accumulation_steps
+                else:
+                    cmd_cfg[keys[-1]] = gradient_accumulation_steps
                 json.dump(cmd_cfg, open(cmd[arg][0], "w"))
             elif ".yaml" in cmd[arg][0]:
                 import yaml
@@ -437,9 +472,16 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                         "Please check your auto tuner json whether valid."
                     )
                 keys = cmd[arg][1].split(".")
+                value = None
                 for key in keys[: len(keys) - 1]:
-                    cmd_cfg = cmd_cfg[key]
-                cmd_cfg[keys[-1]] = gradient_accumulation_steps
+                    if not value:
+                        value = cmd_cfg[key]
+                    else:
+                        value = value[key]
+                if value:
+                    value[keys[-1]] = gradient_accumulation_steps
+                else:
+                    cmd_cfg[keys[-1]] = gradient_accumulation_steps
                 yaml.dump(cmd_cfg, open(cmd[arg][0], "w"))
 
     assert "run_cmd" in tuner_cfg
@@ -477,9 +519,16 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                         "Please check your auto tuner json whether valid."
                     )
                 keys = cmd[arg][1].split(".")
+                value = None
                 for key in keys[: len(keys) - 1]:
-                    cmd_cfg = cmd_cfg[key]
-                cmd_cfg[keys[-1]] = cmd[arg][2]
+                    if value:
+                        value = value[key]
+                    else:
+                        value = cmd_cfg[key]
+                if value:
+                    value[keys[-1]] = cmd[arg][2]
+                else:
+                    cmd_cfg[keys[-1]] = cmd[arg][2]
                 json.dump(cmd_cfg, open(cmd[arg][0], "w"))
             elif ".yaml" in cmd[arg][0]:
                 import yaml
@@ -493,9 +542,16 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                         "Please check your auto tuner json whether valid."
                     )
                 keys = cmd[arg][1].split(".")
+                value = None
                 for key in keys[: len(keys) - 1]:
-                    cmd_cfg = cmd_cfg[key]
-                cmd_cfg[keys[-1]] = cmd[arg][2]
+                    if value:
+                        value = cmd_cfg[key]
+                    else:
+                        value = value[key]
+                if value:
+                    value[keys[-1]] = cmd[arg][2]
+                else:
+                    cmd_cfg[keys[-1]] = cmd[arg][2]
                 yaml.dump(cmd_cfg, open(cmd[arg][0], "w"))
 
     if tuner_cfg["run_cmd"].get("run_best_stage", None) and run_best:
@@ -517,9 +573,16 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                         "Please check your auto tuner json whether valid."
                     )
                 keys = cmd[arg][1].split(".")
+                value = None
                 for key in keys[: len(keys) - 1]:
-                    cmd_cfg = cmd_cfg[key]
-                cmd_cfg[keys[-1]] = cmd[arg][2]
+                    if value:
+                        value = value[key]
+                    else:
+                        value = cmd_cfg[key]
+                if value:
+                    value[keys[-1]] = cmd[arg][2]
+                else:
+                    cmd_cfg[keys[-1]] = cmd[arg][2]
                 json.dump(cmd_cfg, open(cmd[arg][0], "w"))
             elif ".yaml" in cmd[arg][0]:
                 import yaml
@@ -533,9 +596,16 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                         "Please check your auto tuner json whether valid."
                     )
                 keys = cmd[arg][1].split(".")
+                value = None
                 for key in keys[: len(keys) - 1]:
-                    cmd_cfg = cmd_cfg[key]
-                cmd_cfg[keys[-1]] = cmd[arg][2]
+                    if value:
+                        value = value[key]
+                    else:
+                        value = cmd_cfg[key]
+                if value:
+                    value[keys[-1]] = cmd[arg][2]
+                else:
+                    cmd_cfg[keys[-1]] = cmd[arg][2]
                 yaml.dump(cmd_cfg, open(cmd[arg][0], "w"))
 
     return res_args
