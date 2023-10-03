@@ -294,6 +294,22 @@ def search_all(tuner_cfg):
     return new_all_cfgs
 
 
+def search_by_dp_estimation(tuner_cfg):
+    from .cost_model import get_not_oom_cfgs
+
+    all_cfgs = search_all(tuner_cfg)
+    not_oom_cfgs = get_not_oom_cfgs(all_cfgs, tuner_cfg)
+    num_gpus_per_dp_degree = tuner_cfg["num_gpus"]
+    estimated_dp_degree = (
+        tuner_cfg["estimated_num_gpus"] // num_gpus_per_dp_degree
+    )
+    result_cfgs = []
+    for cfg in not_oom_cfgs:
+        if cfg["dp_degree"] == estimated_dp_degree:
+            result_cfgs.append(result_cfgs)
+    return result_cfgs
+
+
 def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
     """Generate new script args."""
 
@@ -386,7 +402,7 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                     else:
                         value = value[key]
                 if value:
-                    value[keys[-1]] = local_batch_size 
+                    value[keys[-1]] = local_batch_size
                 else:
                     cmd_cfg[keys[-1]] = local_batch_size
                 json.dump(cmd_cfg, open(cmd[arg][0], "w"))
