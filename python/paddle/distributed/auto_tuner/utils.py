@@ -587,6 +587,97 @@ def add_overlap_performance(cur_cfg, tuner_cfg, history_cfgs):
                     raw_cfg[mew_key] = round(raw_cfg[key] * (1 + ratio), 5)
 
 
+def gen_sharding_overlap_args_of_grid_search(res_args, cfg, tuner_cfg):
+    """Generate args of sharding overlap."""
+    if "sharding_overlap" not in tuner_cfg["search_algo"]:
+        return
+    cmd = copy.deepcopy(tuner_cfg["search_algo"]["sharding_overlap"])
+    valid_hybrid_strategy = [
+        "sharding_mp",
+        "sharding_pp",
+        "sharding_mp_pp",
+        "no_overlap",
+    ]
+    for key in cmd:
+        if key not in valid_hybrid_strategy:
+            raise ValueError(
+                f"Only support {valid_hybrid_strategy}, but got {key}."
+            )
+    sharding_degree = cfg["sharding_degree"]
+    mp_degree = cfg["mp_degree"]
+    pp_degree = cfg["pp_degree"]
+    arg = None
+    if mp_degree > 1 and pp_degree == 1 and sharding_degree > 1:
+        arg = "sharding_mp"
+    elif mp_degree == 1 and pp_degree > 1 and sharding_degree > 1:
+        arg = "sharding_pp"
+    elif mp_degree > 1 and pp_degree > 1 and sharding_degree > 1:
+        arg = "sharding_mp_pp"
+    else:
+        arg = "no_overlap"
+    assert arg is not None
+    if arg in cmd:
+        if "--" in cmd[arg][0]:
+            res_args.extend(cmd[arg])
+        elif "-o" in cmd[arg][0]:
+            res_args.extend(cmd[arg])
+        elif ".json" in cmd[arg][0]:
+            import json
+
+            file_path = cmd[arg][0]
+            try:
+                with open(file_path, "r") as f:
+                    cmd_cfg = json.load(f)
+            except:
+                raise ValueError(
+                    "Please check your auto tuner json whether valid."
+                )
+            keys = cmd[arg][1].split(".")
+            value = None
+            for key in keys[: len(keys) - 1]:
+                if value:
+                    value = value[key]
+                else:
+                    value = cmd_cfg[key]
+            if value:
+                value[keys[-1]] = cmd[arg][2]
+            else:
+                cmd_cfg[keys[-1]] = cmd[arg][2]
+            json.dump(cmd_cfg, open(cmd[arg][0], "w"))
+
+        elif ".yaml" in cmd[arg][0]:
+            import yaml
+
+            file_path = cmd[arg][0]
+            try:
+                with open(file_path, "r") as f:
+                    cmd_cfg = yaml.safe_load(f)
+            except:
+                raise ValueError(
+                    "Please check your auto tuner json whether valid."
+                )
+            arg_map_len = len(cmd[arg]) - 1
+            assert arg_map_len % 2 == 0
+
+            i = 1
+            while i < arg_map_len:
+                keys = cmd[arg][i].split(".")
+                value = None
+                for key in keys[: len(keys) - 1]:
+                    if value:
+                        value = value[key]
+                    else:
+                        value = cmd_cfg[key]
+                if value:
+                    i += 1
+                    value[keys[-1]] = cmd[arg][i]
+                else:
+                    i += 1
+                    cmd_cfg[keys[-1]] = cmd[arg][i]
+                i += 1
+            yaml.dump(cmd_cfg, open(cmd[arg][0], "w"))
+
+
 def gen_sharding_overlap_args(res_args, cfg, tuner_cfg):
     """Generate args of sharding overlap."""
     if "sharding_overlap" not in tuner_cfg["search_algo"]:
@@ -1227,7 +1318,10 @@ def gen_new_args(raw_args, cfg, tuner_cfg, run_best=False):
                 yaml.dump(cmd_cfg, open(cmd[arg][0], "w"))
 
     # sharding overlap args
-    gen_sharding_overlap_args(res_args, cfg, tuner_cfg)
+    if tuner_cfg["search_algo"]["name"] == "grid":
+        gen_sharding_overlap_args_of_grid_search(res_args, cfg, tuner_cfg)
+    else:
+        gen_sharding_overlap_args(res_args, cfg, tuner_cfg)
 
     return res_args
 
